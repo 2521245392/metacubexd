@@ -1,6 +1,12 @@
 import { createForm } from '@felte/solid'
 import { validator } from '@felte/validator-zod'
-import { IconMenuOrder, IconNetwork, IconX } from '@tabler/icons-solidjs'
+import {
+  IconArrowDown,
+  IconArrowUp,
+  IconMenuOrder,
+  IconNetwork,
+  IconX,
+} from '@tabler/icons-solidjs'
 import type {
   DragEventHandler,
   Draggable,
@@ -17,7 +23,7 @@ import {
   useDragDropContext,
 } from '@thisbeyond/solid-dnd'
 import { uniq } from 'lodash'
-import { Component, For, Index, Show, createSignal } from 'solid-js'
+import type { Component } from 'solid-js'
 import { z } from 'zod'
 import { Button, ConfigTitle, Modal } from '~/components'
 import {
@@ -31,8 +37,10 @@ import {
   allConnections,
   clientSourceIPTags,
   connectionsTableSize,
+  quickFilterRegex,
   setClientSourceIPTags,
   setConnectionsTableSize,
+  setQuickFilterRegex,
 } from '~/signals'
 import {
   ConnectionsTableColumnOrder,
@@ -41,8 +49,8 @@ import {
 
 const TagClientSourceIPWithNameForm: Component = () => {
   const schema = z.object({
-    tagName: z.string().nonempty(),
-    sourceIP: z.string().nonempty(),
+    tagName: z.string().min(1),
+    sourceIP: z.string().min(1),
   })
 
   const [t] = useI18n()
@@ -69,7 +77,7 @@ const TagClientSourceIPWithNameForm: Component = () => {
   return (
     <form use:form={form}>
       <div class="join flex">
-        <select name="sourceIP" class="select join-item select-bordered">
+        <select name="sourceIP" class="select join-item">
           <option />
 
           <Index
@@ -85,8 +93,8 @@ const TagClientSourceIPWithNameForm: Component = () => {
               )}
           >
             {(sourceIP) => (
-              <option class="badge" value={sourceIP()}>
-                {sourceIP()}
+              <option class="badge" value={sourceIP() || t('inner')}>
+                {sourceIP() || t('inner')}
               </option>
             )}
           </Index>
@@ -94,7 +102,7 @@ const TagClientSourceIPWithNameForm: Component = () => {
 
         <input
           name="tagName"
-          class="input join-item input-bordered min-w-0 flex-1"
+          class="input join-item flex-1"
           placeholder="name"
         />
 
@@ -145,6 +153,29 @@ export const ConnectionsSettingsModal = (props: {
     }
   }
 
+  const moveElementInOrder = (
+    key: CONNECTIONS_TABLE_ACCESSOR_KEY,
+    direction: 'forward' | 'backward',
+  ) => {
+    const arr = [...props.order]
+    const length = arr.length
+    const index = arr.indexOf(key)
+
+    if (index < 0 || index >= length) {
+      return
+    }
+
+    const newIndex = direction === 'forward' ? index + 1 : index - 1
+
+    if (newIndex < 0 || newIndex >= length) {
+      return
+    }
+
+    ;[arr[index], arr[newIndex]] = [arr[newIndex], arr[index]]
+
+    props.onOrderChange(arr)
+  }
+
   const FormRow: Component<{
     key: CONNECTIONS_TABLE_ACCESSOR_KEY
   }> = ({ key }) => {
@@ -163,25 +194,36 @@ export const ConnectionsSettingsModal = (props: {
         <div class="flex justify-between py-2">
           <div class="flex items-center gap-2">
             <Button
-              class="btn-ghost btn-sm cursor-grab"
+              class="hidden cursor-grab btn-ghost btn-sm sm:inline-block"
               icon={<IconMenuOrder size={24} />}
               {...sortable.dragActivators}
             />
 
             <span>{t(key)}</span>
           </div>
-
-          <input
-            type="checkbox"
-            class="toggle"
-            checked={props.visible[key]}
-            onChange={(e) => {
-              props.onVisibleChange({
-                ...props.visible,
-                [key]: e.target.checked,
-              })
-            }}
-          />
+          <div>
+            <Button
+              class="mx-2 inline-block btn-circle btn-sm sm:hidden"
+              icon={<IconArrowUp width={30} size={24} />}
+              onClick={() => moveElementInOrder(key, 'backward')}
+            />
+            <Button
+              class="mx-2 inline-block btn-circle btn-sm sm:hidden"
+              icon={<IconArrowDown width={30} size={24} />}
+              onClick={() => moveElementInOrder(key, 'forward')}
+            />
+            <input
+              type="checkbox"
+              class="toggle"
+              checked={props.visible[key]}
+              onChange={(e) => {
+                props.onVisibleChange({
+                  ...props.visible,
+                  [key]: e.target.checked,
+                })
+              }}
+            />
+          </div>
         </div>
       </div>
     )
@@ -194,7 +236,7 @@ export const ConnectionsSettingsModal = (props: {
       title={t('connectionsSettings')}
       action={
         <Button
-          class="btn-neutral btn-sm"
+          class="btn-sm btn-neutral"
           onClick={() => {
             props.onOrderChange(CONNECTIONS_TABLE_INITIAL_COLUMN_ORDER)
             props.onVisibleChange(CONNECTIONS_TABLE_INITIAL_COLUMN_VISIBILITY)
@@ -206,10 +248,21 @@ export const ConnectionsSettingsModal = (props: {
     >
       <div class="flex flex-col gap-4">
         <div>
+          <ConfigTitle withDivider>{t('quickFilter')}</ConfigTitle>
+
+          <input
+            type="text"
+            class="input w-full"
+            onInput={(e) => setQuickFilterRegex(e.target.value)}
+            value={quickFilterRegex()}
+          />
+        </div>
+
+        <div>
           <ConfigTitle withDivider>{t('tableSize')}</ConfigTitle>
 
           <select
-            class="select select-bordered w-full"
+            class="select w-full"
             value={connectionsTableSize()}
             onChange={(e) =>
               setConnectionsTableSize(e.target.value as TAILWINDCSS_SIZE)
@@ -232,7 +285,7 @@ export const ConnectionsSettingsModal = (props: {
             <div class="flex flex-col gap-2">
               <For each={clientSourceIPTags()}>
                 {({ tagName, sourceIP }) => (
-                  <div class="badge badge-primary w-full items-center justify-between gap-2 py-4">
+                  <div class="badge w-full items-center justify-between gap-2 py-4 badge-primary">
                     <span class="truncate">
                       {tagName} ({sourceIP})
                     </span>

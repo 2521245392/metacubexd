@@ -1,5 +1,6 @@
-FROM docker.io/node:alpine as builder
+FROM docker.io/node:alpine AS builder
 
+ENV HUSKY=0
 WORKDIR /build
 
 COPY . .

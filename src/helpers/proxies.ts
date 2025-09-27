@@ -1,26 +1,47 @@
-import { PROXIES_ORDERING_TYPE } from '~/constants'
-import { latencyQualityMap } from '~/signals'
+import { LATENCY_QUALITY_MAP_HTTP, PROXIES_ORDERING_TYPE } from '~/constants'
+import { useI18n } from '~/i18n'
+import { latencyQualityMap, urlForLatencyTest, useProxies } from '~/signals'
 
 export const formatProxyType = (type = '') => {
-  const t = type.toLowerCase()
+  const [t] = useI18n()
+  const lt = type.toLowerCase()
+  const formatMap = new Map([
+    ['shadowsocks', 'SS'],
+    ['shadowsocksr', 'SSR'],
+    ['hysteria', 'HY'],
+    ['hysteria2', 'HY2'],
+    ['wireguard', 'WG'],
+    ['selector', t('selector')],
+    ['urltest', t('urltest')],
+    ['fallback', t('fallback')],
+    ['loadbalance', t('loadbalance')],
+    ['direct', t('direct')],
+    ['reject', t('reject')],
+    ['rejectdrop', t('rejectdrop')],
+    ['relay', t('relay')],
+    ['pass', t('pass')],
+  ])
 
-  if (t.includes('shadowsocks')) {
-    return t.replace('shadowsocks', 'ss') // for both ss and ssr
+  if (formatMap.has(lt)) {
+    return formatMap.get(lt)
+  } else {
+    return lt
   }
+}
 
-  if (t === 'hysteria') {
-    return 'hy'
+export const getLatencyClassName = (latency: LATENCY_QUALITY_MAP_HTTP) => {
+  if (latency > latencyQualityMap().HIGH) {
+    return 'text-red-500'
+  } else if (latency > latencyQualityMap().MEDIUM) {
+    return 'text-yellow-500'
+  } else if (latency === LATENCY_QUALITY_MAP_HTTP.NOT_CONNECTED) {
+    return 'text-gray'
+  } else {
+    return 'text-green-600'
   }
-
-  if (t === 'wireguard') {
-    return 'wg'
-  }
-
-  return t
 }
 
 export const filterSpecialProxyType = (type = '') => {
-  const t = type.toLowerCase()
   const conditions = [
     'selector',
     'direct',
@@ -31,26 +52,29 @@ export const filterSpecialProxyType = (type = '') => {
     'relay',
   ]
 
-  return !conditions.includes(t)
+  return !conditions.includes(type.toLowerCase())
 }
 
-export const sortProxiesByOrderingType = (
-  proxyNames: string[],
-  proxyLatencyMap: Record<string, number>,
-  orderingType: PROXIES_ORDERING_TYPE,
-  proxyGroupNames: Set<string> | undefined,
-) => {
+export const sortProxiesByOrderingType = ({
+  proxyNames,
+  orderingType,
+  testUrl,
+}: {
+  proxyNames: string[]
+  orderingType: PROXIES_ORDERING_TYPE
+  testUrl: string | null
+}) => {
+  const { getLatencyByName } = useProxies()
+
   if (orderingType === PROXIES_ORDERING_TYPE.NATURAL) {
     return proxyNames
   }
 
+  const finalTestUrl = testUrl || urlForLatencyTest()
+
   return proxyNames.sort((a, b) => {
-    if (proxyGroupNames?.has(a) && !proxyGroupNames?.has(b)) return -1
-
-    if (proxyGroupNames?.has(b) && !proxyGroupNames?.has(a)) return 1
-
-    const prevLatency = proxyLatencyMap[a]
-    const nextLatency = proxyLatencyMap[b]
+    const prevLatency = getLatencyByName(a, finalTestUrl)
+    const nextLatency = getLatencyByName(b, finalTestUrl)
 
     switch (orderingType) {
       case PROXIES_ORDERING_TYPE.LATENCY_ASC:
@@ -79,16 +103,29 @@ export const sortProxiesByOrderingType = (
   })
 }
 
-export const filterProxiesByAvailability = (
-  proxyNames: string[],
-  proxyLatencyMap: Record<string, number>,
-  excludes: Set<string>,
-  enabled?: boolean,
-) =>
-  enabled
-    ? proxyNames.filter((name) =>
-        excludes?.has(name)
-          ? true
-          : proxyLatencyMap[name] !== latencyQualityMap().NOT_CONNECTED,
+export const filterProxiesByAvailability = ({
+  proxyNames,
+  enabled,
+  testUrl,
+}: {
+  proxyNames: string[]
+  enabled?: boolean
+  testUrl: string | null
+}) => {
+  const { getLatencyByName, isProxyGroup } = useProxies()
+
+  const finalTestUrl = testUrl || urlForLatencyTest()
+
+  return enabled
+    ? proxyNames.filter(
+        // we need proxy node with connected or the node is a group it self
+        (name) => {
+          return (
+            isProxyGroup(name) ||
+            getLatencyByName(name, finalTestUrl) !==
+              latencyQualityMap().NOT_CONNECTED
+          )
+        },
       )
     : proxyNames
+}

@@ -1,11 +1,15 @@
-import { createSignal } from 'solid-js'
-
-export const isSingBox = (version: string) => {
-  return version.includes('sing-box')
-}
-
 export const transformEndpointURL = (url: string) =>
-  /^https?/.test(url) ? url : `${window.location.protocol}//${url}`
+  /^https?:\/\//.test(url) ? url : `${window.location.protocol}//${url}`
+
+export const formatIPv6 = (ip: string) => {
+  const regexr = /:{1,2}/
+
+  if (regexr.test(ip)) {
+    return `[${ip}]`
+  } else {
+    return ip
+  }
+}
 
 export const useStringBooleanMap = () => {
   const [map, setMap] = createSignal<Record<string, boolean>>({})
@@ -23,7 +27,9 @@ export const useStringBooleanMap = () => {
     set(name, true)
     try {
       await callback()
-    } catch {}
+    } catch {
+      /* empty */
+    }
     set(name, false)
   }
 

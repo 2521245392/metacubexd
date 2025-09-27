@@ -1,5 +1,5 @@
 import { IconFileStack } from '@tabler/icons-solidjs'
-import { Component, For } from 'solid-js'
+import type { Component } from 'solid-js'
 import { ConfigTitle, Modal } from '~/components'
 import {
   LOGS_TABLE_MAX_ROWS_LIST,
@@ -32,7 +32,7 @@ export const LogsSettingsModal: Component<{
           <ConfigTitle withDivider>{t('tableSize')}</ConfigTitle>
 
           <select
-            class="select select-bordered w-full"
+            class="select w-full"
             value={logsTableSize()}
             onChange={(e) =>
               setLogsTableSize(e.target.value as TAILWINDCSS_SIZE)
@@ -48,7 +48,7 @@ export const LogsSettingsModal: Component<{
           <ConfigTitle withDivider>{t('logLevel')}</ConfigTitle>
 
           <select
-            class="select select-bordered w-full"
+            class="select w-full"
             value={logLevel()}
             onChange={(e) => setLogLevel(e.target.value as LOG_LEVEL)}
           >
@@ -70,7 +70,7 @@ export const LogsSettingsModal: Component<{
           <ConfigTitle withDivider>{t('logMaxRows')}</ConfigTitle>
 
           <select
-            class="select select-bordered w-full"
+            class="select w-full"
             value={logMaxRows()}
             onChange={(e) => setLogMaxRows(parseInt(e.target.value))}
           >

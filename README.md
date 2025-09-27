@@ -17,8 +17,6 @@ Mihomo Dashboard, The Official One, XD
 
 ## Published Official Links
 
-GH Pages Custom Domain: http://d.metacubex.one
-
 GH Pages: https://metacubex.github.io/metacubexd
 
 Cloudflare Pages: https://metacubexd.pages.dev
@@ -85,11 +83,14 @@ services:
     container_name: meta
     image: docker.io/metacubex/mihomo:Alpha
     restart: always
+    pid: host
+    ipc: host
     network_mode: host
     cap_add:
-      - NET_ADMIN
+      - ALL
     volumes:
       - ./config.yaml:/root/.config/mihomo
+      - /dev/net/tun:/dev/net/tun
 ```
 
 Running

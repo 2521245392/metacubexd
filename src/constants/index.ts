@@ -53,7 +53,6 @@ export const DEFAULT_CHART_OPTIONS: ApexOptions = {
   chart: {
     toolbar: { show: false },
     zoom: { enabled: false },
-    animations: { easing: 'linear' },
   },
   noData: { text: 'Loading...' },
   legend: {
@@ -62,7 +61,6 @@ export const DEFAULT_CHART_OPTIONS: ApexOptions = {
     labels: { colors: 'gray' },
     itemMargin: { horizontal: 32 },
   },
-  dataLabels: { enabled: false },
   grid: { yaxis: { lines: { show: false } } },
   stroke: { curve: 'smooth' },
   tooltip: { enabled: false },
@@ -80,13 +78,13 @@ export const DEFAULT_CHART_OPTIONS: ApexOptions = {
 }
 
 export enum LATENCY_QUALITY_MAP_HTTP {
-  NOT_CONNECTED = -1,
+  NOT_CONNECTED = 0,
   MEDIUM = 200,
   HIGH = 500,
 }
 
 export enum LATENCY_QUALITY_MAP_HTTPS {
-  NOT_CONNECTED = -1,
+  NOT_CONNECTED = 0,
   MEDIUM = 800,
   HIGH = 1500,
 }
@@ -109,6 +107,7 @@ export enum PROXIES_ORDERING_TYPE {
 export enum LANG {
   EN = 'en-US',
   ZH = 'zh-CN',
+  RU = 'ru-RU',
 }
 
 export enum CONNECTIONS_TABLE_ACCESSOR_KEY {
@@ -119,10 +118,10 @@ export enum CONNECTIONS_TABLE_ACCESSOR_KEY {
   Process = 'process',
   Host = 'host',
   SniffHost = 'sniffHost',
-  Rule = 'rules',
+  Rule = 'rule',
   Chains = 'chains',
   DlSpeed = 'dlSpeed',
-  ULSpeed = 'ulSpeed',
+  UlSpeed = 'ulSpeed',
   Download = 'dl',
   Upload = 'ul',
   ConnectTime = 'connectTime',
@@ -137,11 +136,19 @@ export const CONNECTIONS_TABLE_MAX_CLOSED_ROWS = 200
 export const CONNECTIONS_TABLE_INITIAL_COLUMN_ORDER = Object.values(
   CONNECTIONS_TABLE_ACCESSOR_KEY,
 )
+
 export const CONNECTIONS_TABLE_INITIAL_COLUMN_VISIBILITY = {
   ...Object.fromEntries(
-    CONNECTIONS_TABLE_INITIAL_COLUMN_ORDER.map((i) => [i, true]),
+    CONNECTIONS_TABLE_INITIAL_COLUMN_ORDER.map((i) => [i, false]),
   ),
-  [CONNECTIONS_TABLE_ACCESSOR_KEY.ID]: false,
+  [CONNECTIONS_TABLE_ACCESSOR_KEY.Details]: true,
+  [CONNECTIONS_TABLE_ACCESSOR_KEY.Close]: true,
+  [CONNECTIONS_TABLE_ACCESSOR_KEY.Host]: true,
+  [CONNECTIONS_TABLE_ACCESSOR_KEY.Rule]: true,
+  [CONNECTIONS_TABLE_ACCESSOR_KEY.Chains]: true,
+  [CONNECTIONS_TABLE_ACCESSOR_KEY.DlSpeed]: true,
+  [CONNECTIONS_TABLE_ACCESSOR_KEY.UlSpeed]: true,
+  [CONNECTIONS_TABLE_ACCESSOR_KEY.SourceIP]: true,
 }
 
 export enum TAILWINDCSS_SIZE {
@@ -151,18 +158,17 @@ export enum TAILWINDCSS_SIZE {
   LG = 'lg',
 }
 
-export enum MODE_OPTIONS {
-  Global = 'global',
-  Rule = 'rule',
-  Direct = 'direct',
-}
-
 export enum LOG_LEVEL {
   Info = 'info',
   Error = 'error',
   Warning = 'warning',
   Debug = 'debug',
   Silent = 'silent',
+}
+
+export enum FONT_FAMILY {
+  FiraSans = 'font-fira-sans',
+  SystemUI = 'font-system-ui',
 }
 
 export const LOGS_TABLE_MAX_ROWS_LIST = [200, 300, 500, 800, 1000]

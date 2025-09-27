@@ -1,6 +1,7 @@
 import { writeClipboard } from '@solid-primitives/clipboard'
 import { makePersisted } from '@solid-primitives/storage'
 import {
+  IconChevronRight,
   IconInfoSmall,
   IconPlayerPause,
   IconPlayerPlay,
@@ -14,36 +15,31 @@ import {
 import { rankItem } from '@tanstack/match-sorter-utils'
 import {
   ColumnDef,
-  FilterFn,
-  GroupingState,
-  SortingState,
   createSolidTable,
+  FilterFn,
   flexRender,
   getCoreRowModel,
   getExpandedRowModel,
   getFilteredRowModel,
   getGroupedRowModel,
   getSortedRowModel,
+  GroupingState,
+  SortingState,
 } from '@tanstack/solid-table'
 import byteSize from 'byte-size'
 import dayjs from 'dayjs'
 import { uniq } from 'lodash'
-import {
-  For,
-  Index,
-  createEffect,
-  createMemo,
-  createSignal,
-  on,
-} from 'solid-js'
 import { twMerge } from 'tailwind-merge'
+import { Virtualizer } from 'virtua/solid'
 import { closeAllConnectionsAPI, closeSingleConnectionAPI } from '~/apis'
 import {
   Button,
   ConnectionsSettingsModal,
   ConnectionsTableDetailsModal,
+  DocumentTitle,
 } from '~/components'
 import { CONNECTIONS_TABLE_ACCESSOR_KEY } from '~/constants'
+import { formatIPv6, formatTimeFromNow } from '~/helpers'
 import { useI18n } from '~/i18n'
 import {
   allConnections,
@@ -51,7 +47,8 @@ import {
   connectionsTableColumnOrder,
   connectionsTableColumnVisibility,
   connectionsTableSize,
-  formatTimeFromNow,
+  endpoint,
+  quickFilterRegex,
   setConnectionsTableColumnOrder,
   setConnectionsTableColumnVisibility,
   tableSizeClassName,
@@ -78,6 +75,14 @@ const fuzzyFilter: FilterFn<Connection> = (row, columnId, value, addMeta) => {
 }
 
 export default () => {
+  const navigate = useNavigate()
+
+  if (!endpoint()) {
+    navigate('/setup', { replace: true })
+
+    return null
+  }
+
   let connectionsSettingsModalRef: HTMLDialogElement | undefined
   let connectionsDetailsModalRef: HTMLDialogElement | undefined
 
@@ -86,9 +91,16 @@ export default () => {
   const [activeTab, setActiveTab] = createSignal(ActiveTab.activeConnections)
   const { activeConnections, closedConnections, paused, setPaused } =
     useConnections()
+  const [isClosingConnections, setIsClosingConnections] = createSignal(false)
 
   const [globalFilter, setGlobalFilter] = createSignal('')
-
+  const [enableQuickFilter, setEnableQuickFilter] = makePersisted(
+    createSignal(false),
+    {
+      name: 'enableQuickFilter',
+      storage: localStorage,
+    },
+  )
   const [selectedConnectionID, setSelectedConnectionID] = createSignal<string>()
 
   const columns: ColumnDef<Connection>[] = [
@@ -157,7 +169,7 @@ export default () => {
         `${
           original.metadata.host
             ? original.metadata.host
-            : original.metadata.destinationIP
+            : formatIPv6(original.metadata.destinationIP)
         }:${original.metadata.destinationPort}`,
     },
     {
@@ -166,17 +178,28 @@ export default () => {
       accessorFn: (original) => original.metadata.sniffHost || '-',
     },
     {
-      header: () => t('rules'),
+      header: () => t('rule'),
       accessorKey: CONNECTIONS_TABLE_ACCESSOR_KEY.Rule,
       accessorFn: (original) =>
         !original.rulePayload
           ? original.rule
-          : `${original.rule} :: ${original.rulePayload}`,
+          : `${original.rule} : ${original.rulePayload}`,
     },
     {
       header: () => t('chains'),
       accessorKey: CONNECTIONS_TABLE_ACCESSOR_KEY.Chains,
-      accessorFn: (original) => original.chains.slice().reverse().join(' :: '),
+      cell: ({ row }) => (
+        <For each={row.original.chains.slice().reverse()}>
+          {(name, index) => (
+            <>
+              <Show when={index()}>
+                <IconChevronRight class="inline-block" size={18} />
+              </Show>
+              <span class="align-middle">{name}</span>
+            </>
+          )}
+        </For>
+      ),
     },
     {
       header: () => t('connectTime'),
@@ -198,7 +221,7 @@ export default () => {
     {
       header: () => t('ulSpeed'),
       enableGrouping: false,
-      accessorKey: CONNECTIONS_TABLE_ACCESSOR_KEY.ULSpeed,
+      accessorKey: CONNECTIONS_TABLE_ACCESSOR_KEY.UlSpeed,
       accessorFn: (original) => `${byteSize(original.uploadSpeed)}/s`,
       sortingFn: (prev, next) =>
         prev.original.uploadSpeed - next.original.uploadSpeed,
@@ -222,11 +245,10 @@ export default () => {
       header: () => t('sourceIP'),
       accessorKey: CONNECTIONS_TABLE_ACCESSOR_KEY.SourceIP,
       accessorFn: (original) => {
-        const tag = clientSourceIPTags().find(
-          (tag) => tag.sourceIP === original.metadata.sourceIP,
-        )
+        const src = original.metadata.sourceIP || t('inner')
+        const tag = clientSourceIPTags().find((tag) => tag.sourceIP === src)
 
-        return tag ? tag.tagName : original.metadata.sourceIP
+        return tag?.tagName || src
       },
     },
     {
@@ -282,9 +304,24 @@ export default () => {
       },
     },
     get data() {
-      return activeTab() === ActiveTab.activeConnections
-        ? activeConnections()
-        : closedConnections()
+      const connections =
+        activeTab() === ActiveTab.activeConnections
+          ? activeConnections()
+          : closedConnections()
+
+      connections.sort((a, b) => {
+        return a.id.localeCompare(b.id)
+      })
+
+      if (!enableQuickFilter()) {
+        return connections
+      }
+
+      const reg = new RegExp(quickFilterRegex(), 'i')
+
+      return connections.filter(
+        (connection) => !reg.test(connection.chains.join('')),
+      )
     },
     sortDescFirst: true,
     enableHiding: true,
@@ -331,220 +368,261 @@ export default () => {
     },
   ])
 
+  let scrollRef: HTMLDivElement | undefined
+
   return (
-    <div class="flex h-full flex-col gap-2">
-      <div class="flex w-full flex-wrap items-center gap-2">
-        <div class="flex items-center gap-2">
-          <div class="tabs-boxed tabs gap-2">
-            <Index each={tabs()}>
-              {(tab) => (
-                <button
-                  class={twMerge(
-                    activeTab() === tab().type && 'tab-active',
-                    'tab tab-sm gap-2 sm:tab-md',
-                  )}
-                  onClick={() => setActiveTab(tab().type)}
-                >
-                  <span>{tab().name}</span>
-                  <div class="badge badge-sm">{tab().count}</div>
-                </button>
-              )}
-            </Index>
+    <>
+      <DocumentTitle>{t('connections')}</DocumentTitle>
+
+      <div class="flex h-full flex-col gap-2">
+        <div class="flex w-full flex-wrap items-center gap-2">
+          <div class="flex items-center gap-2">
+            <div class="tabs gap-2 tabs-box tabs-sm">
+              <Index each={tabs()}>
+                {(tab) => (
+                  <button
+                    class={twMerge(
+                      activeTab() === tab().type && 'bg-primary !text-neutral',
+                      'tab gap-2 px-2',
+                    )}
+                    onClick={() => setActiveTab(tab().type)}
+                  >
+                    <span>{tab().name}</span>
+                    <div class="badge badge-sm">{tab().count}</div>
+                  </button>
+                )}
+              </Index>
+            </div>
+
+            <div class="flex items-center">
+              <span class="mr-2 hidden lg:inline-block">
+                {t('quickFilter')}:
+              </span>
+              <input
+                type="checkbox"
+                class="toggle"
+                checked={enableQuickFilter()}
+                onChange={(e) => setEnableQuickFilter(e.target.checked)}
+              />
+            </div>
+
+            <select
+              class="select flex-1 select-sm select-primary"
+              onChange={(e) => setSourceIPFilter(e.target.value)}
+            >
+              <option value="">{t('all')}</option>
+
+              <Index
+                each={uniq(
+                  allConnections().map(({ metadata: { sourceIP } }) => {
+                    const src = sourceIP || t('inner')
+                    const tagged = clientSourceIPTags().find(
+                      (tag) => tag.sourceIP === src,
+                    )
+
+                    return tagged?.tagName || src
+                  }),
+                ).sort()}
+              >
+                {(sourceIP) => <option value={sourceIP()}>{sourceIP()}</option>}
+              </Index>
+            </select>
           </div>
 
-          <select
-            class="select select-bordered select-primary select-sm w-full max-w-full flex-1 sm:select-md"
-            onChange={(e) => setSourceIPFilter(e.target.value)}
-          >
-            <option value="">{t('all')}</option>
+          <div class="join flex flex-1 items-center">
+            <input
+              type="search"
+              class="input input-sm join-item flex-1 input-primary"
+              placeholder={t('search')}
+              onInput={(e) => setGlobalFilter(e.target.value)}
+            />
 
-            <Index
-              each={uniq(
-                allConnections().map(({ metadata: { sourceIP } }) => {
-                  const tagged = clientSourceIPTags().find(
-                    (tag) => tag.sourceIP === sourceIP,
+            <Button
+              class="btn join-item btn-sm btn-primary"
+              onClick={() => setPaused((paused) => !paused)}
+              icon={paused() ? <IconPlayerPlay /> : <IconPlayerPause />}
+            />
+
+            <Button
+              class="btn join-item btn-sm btn-primary"
+              onClick={async () => {
+                setIsClosingConnections(true)
+
+                if (table.getState().globalFilter) {
+                  await Promise.allSettled(
+                    table
+                      .getFilteredRowModel()
+                      .rows.map(({ original }) =>
+                        closeSingleConnectionAPI(original.id),
+                      ),
                   )
+                } else {
+                  await closeAllConnectionsAPI()
+                }
 
-                  return tagged ? tagged.tagName : sourceIP
-                }),
-              ).sort()}
-            >
-              {(sourceIP) => <option value={sourceIP()}>{sourceIP()}</option>}
-            </Index>
-          </select>
-        </div>
-
-        <div class="join flex flex-1 items-center md:flex-1">
-          <input
-            type="search"
-            class="input join-item input-primary input-sm min-w-0 flex-1 sm:input-md"
-            placeholder={t('search')}
-            onInput={(e) => setGlobalFilter(e.target.value)}
-          />
-
-          <Button
-            class="join-item btn-sm sm:btn-md"
-            onClick={() => setPaused((paused) => !paused)}
-            icon={paused() ? <IconPlayerPlay /> : <IconPlayerPause />}
-          />
-
-          <Button
-            class="join-item btn-sm sm:btn-md"
-            onClick={() => {
-              if (table.getState().globalFilter) {
-                table
-                  .getFilteredRowModel()
-                  .rows.forEach(({ id }) => closeSingleConnectionAPI(id))
-              } else {
-                closeAllConnectionsAPI()
+                setIsClosingConnections(false)
+              }}
+              icon={
+                isClosingConnections() ? (
+                  <div class="loading loading-spinner" />
+                ) : (
+                  <IconX />
+                )
               }
-            }}
-            icon={<IconX />}
-          />
+            />
 
-          <Button
-            class="btn join-item btn-sm sm:btn-md"
-            onClick={() => connectionsSettingsModalRef?.showModal()}
-            icon={<IconSettings />}
-          />
+            <Button
+              class="btn join-item btn-sm btn-primary"
+              onClick={() => connectionsSettingsModalRef?.showModal()}
+              icon={<IconSettings />}
+            />
+          </div>
         </div>
-      </div>
 
-      <div class="overflow-x-auto whitespace-nowrap rounded-md bg-base-300">
-        <table
-          class={twMerge(
-            tableSizeClassName(connectionsTableSize()),
-            'table table-zebra relative rounded-none',
-          )}
+        <div
+          class="h-full overflow-x-auto rounded-md bg-base-300"
+          ref={scrollRef}
         >
-          <thead class="sticky top-0 z-10 h-8">
-            <For each={table.getHeaderGroups()}>
-              {(headerGroup) => (
-                <tr>
-                  <For each={headerGroup.headers}>
-                    {(header) => (
-                      <th class="bg-base-200">
-                        <div class={twMerge('flex items-center gap-2')}>
-                          {header.column.getCanGroup() ? (
-                            <button
-                              class="cursor-pointer"
-                              onClick={header.column.getToggleGroupingHandler()}
-                            >
-                              {header.column.getIsGrouped() ? (
-                                <IconZoomOutFilled size={18} />
-                              ) : (
-                                <IconZoomInFilled size={18} />
-                              )}
-                            </button>
-                          ) : null}
-
-                          <div
-                            class={twMerge(
-                              header.column.getCanSort() &&
-                                'cursor-pointer select-none',
-                              'flex-1',
-                            )}
-                            onClick={header.column.getToggleSortingHandler()}
-                          >
-                            {flexRender(
-                              header.column.columnDef.header,
-                              header.getContext(),
-                            )}
-                          </div>
-
-                          {{
-                            asc: <IconSortAscending />,
-                            desc: <IconSortDescending />,
-                          }[header.column.getIsSorted() as string] ?? null}
-                        </div>
-                      </th>
-                    )}
-                  </For>
-                </tr>
-              )}
-            </For>
-          </thead>
-
-          <tbody>
-            <For each={table.getRowModel().rows}>
-              {(row) => (
-                <tr class="hover:!bg-primary hover:text-primary-content">
-                  <For each={row.getVisibleCells()}>
-                    {(cell) => {
-                      return (
-                        <td
-                          class="py-2"
-                          onContextMenu={(e) => {
-                            e.preventDefault()
-
-                            const value = cell.renderValue() as null | string
-                            value && writeClipboard(value).catch(() => {})
-                          }}
-                        >
-                          {cell.getIsGrouped() ? (
-                            <button
-                              class={twMerge(
-                                row.getCanExpand()
-                                  ? 'cursor-pointer'
-                                  : 'cursor-normal',
-                                'flex items-center gap-2',
-                              )}
-                              onClick={row.getToggleExpandedHandler()}
-                            >
-                              <div>
-                                {row.getIsExpanded() ? (
+          <table
+            class={twMerge(
+              tableSizeClassName(connectionsTableSize()),
+              'table-pin-rows table h-full table-zebra',
+            )}
+          >
+            <thead>
+              <For each={table.getHeaderGroups()}>
+                {(headerGroup) => (
+                  <tr class="flex">
+                    <For each={headerGroup.headers}>
+                      {(header) => (
+                        <th class="bg-base-200" style={{ width: '150px' }}>
+                          <div class={twMerge('flex items-center gap-2')}>
+                            {header.column.getCanGroup() ? (
+                              <button
+                                class="cursor-pointer"
+                                onClick={header.column.getToggleGroupingHandler()}
+                              >
+                                {header.column.getIsGrouped() ? (
                                   <IconZoomOutFilled size={18} />
                                 ) : (
                                   <IconZoomInFilled size={18} />
                                 )}
-                              </div>
+                              </button>
+                            ) : null}
 
-                              <div>
-                                {flexRender(
-                                  cell.column.columnDef.cell,
-                                  cell.getContext(),
-                                )}
-                              </div>
+                            <div
+                              class={twMerge(
+                                header.column.getCanSort() &&
+                                  'cursor-pointer select-none',
+                                'flex-1',
+                              )}
+                              onClick={header.column.getToggleSortingHandler()}
+                            >
+                              {flexRender(
+                                header.column.columnDef.header,
+                                header.getContext(),
+                              )}
+                            </div>
 
-                              <div>({row.subRows.length})</div>
-                            </button>
-                          ) : cell.getIsAggregated() ? (
-                            flexRender(
-                              cell.column.columnDef.aggregatedCell ??
+                            {{
+                              asc: <IconSortAscending />,
+                              desc: <IconSortDescending />,
+                            }[header.column.getIsSorted() as string] ?? null}
+                          </div>
+                        </th>
+                      )}
+                    </For>
+                  </tr>
+                )}
+              </For>
+            </thead>
+
+            <Virtualizer
+              scrollRef={scrollRef}
+              data={table.getRowModel().rows}
+              as="tbody"
+              item="tr"
+            >
+              {(row) => (
+                <For each={row.getVisibleCells()}>
+                  {(cell) => {
+                    return (
+                      <td
+                        class="inline-block py-2 break-words"
+                        style={{
+                          width: '150px',
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault()
+
+                          const value = cell.renderValue() as null | string
+
+                          if (value) writeClipboard(value).catch(() => {})
+                        }}
+                      >
+                        {cell.getIsGrouped() ? (
+                          <button
+                            class={twMerge(
+                              row.getCanExpand()
+                                ? 'cursor-pointer'
+                                : 'cursor-normal',
+                              'flex items-center gap-2',
+                            )}
+                            onClick={row.getToggleExpandedHandler()}
+                          >
+                            <div>
+                              {row.getIsExpanded() ? (
+                                <IconZoomOutFilled size={18} />
+                              ) : (
+                                <IconZoomInFilled size={18} />
+                              )}
+                            </div>
+
+                            <div>
+                              {flexRender(
                                 cell.column.columnDef.cell,
-                              cell.getContext(),
-                            )
-                          ) : cell.getIsPlaceholder() ? null : (
-                            flexRender(
+                                cell.getContext(),
+                              )}
+                            </div>
+
+                            <div>({row.subRows.length})</div>
+                          </button>
+                        ) : cell.getIsAggregated() ? (
+                          flexRender(
+                            cell.column.columnDef.aggregatedCell ??
                               cell.column.columnDef.cell,
-                              cell.getContext(),
-                            )
-                          )}
-                        </td>
-                      )
-                    }}
-                  </For>
-                </tr>
+                            cell.getContext(),
+                          )
+                        ) : cell.getIsPlaceholder() ? null : (
+                          flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )
+                        )}
+                      </td>
+                    )
+                  }}
+                </For>
               )}
-            </For>
-          </tbody>
-        </table>
+            </Virtualizer>
+          </table>
+        </div>
+
+        <ConnectionsSettingsModal
+          ref={(el) => (connectionsSettingsModalRef = el)}
+          order={connectionsTableColumnOrder()}
+          visible={connectionsTableColumnVisibility()}
+          onOrderChange={(data) => setConnectionsTableColumnOrder(data)}
+          onVisibleChange={(data) =>
+            setConnectionsTableColumnVisibility({ ...data })
+          }
+        />
+
+        <ConnectionsTableDetailsModal
+          ref={(el) => (connectionsDetailsModalRef = el)}
+          selectedConnectionID={selectedConnectionID()}
+        />
       </div>
-
-      <ConnectionsSettingsModal
-        ref={(el) => (connectionsSettingsModalRef = el)}
-        order={connectionsTableColumnOrder()}
-        visible={connectionsTableColumnVisibility()}
-        onOrderChange={(data) => setConnectionsTableColumnOrder(data)}
-        onVisibleChange={(data) =>
-          setConnectionsTableColumnVisibility({ ...data })
-        }
-      />
-
-      <ConnectionsTableDetailsModal
-        ref={(el) => (connectionsDetailsModalRef = el)}
-        selectedConnectionID={selectedConnectionID()}
-      />
-    </div>
+    </>
   )
 }

@@ -1,5 +1,6 @@
 interface ImportMetaEnv {
-  readonly version: string
+  readonly VITE_APP_GH_TOKEN?: string
+  readonly APP_VERSION: string
 }
 
 interface ImportMeta {

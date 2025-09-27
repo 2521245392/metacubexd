@@ -5,8 +5,13 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   release-please:
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -15,23 +20,24 @@ jobs:
     steps:
       - name: release-please
         id: release
-        uses: google-github-actions/release-please-action@v4
+        uses: googleapis/release-please-action@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.CI_TOKEN }}
           release-type: node
 
   release-assets:
+    permissions:
+      contents: read
+      packages: write
     needs: release-please
     runs-on: ubuntu-latest
     if: ${{ needs.release-please.outputs.release_created }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: pnpm/action-setup@v2
-        with:
-          version: latest
+      - uses: pnpm/action-setup@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           cache: pnpm
           node-version: latest
@@ -43,9 +49,9 @@ jobs:
         run: pnpm build
 
       - name: publish gh-pages
-        uses: peaceiris/actions-gh-pages@v3
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.CI_TOKEN }}
           publish_dir: ./dist
           force_orphan: true
           cname: d.metacubex.one
@@ -55,17 +61,21 @@ jobs:
         run: tar czvf compressed-dist.tgz -C dist .
 
       - name: attach github release artifacts
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.CI_TOKEN }}
           files: compressed-dist.tgz
           tag_name: ${{ needs.release-please.outputs.tag_name }}
 
   release-image:
+    permissions:
+      contents: read
+      packages: write
     needs: release-please
     runs-on: ubuntu-latest
     if: ${{ needs.release-please.outputs.release_created }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -79,10 +89,10 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.CI_TOKEN }}
 
       - name: build and publish ghcr.io docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           builder: ${{ steps.buildx.outputs.name }}
@@ -91,5 +101,6 @@ jobs:
           push: true
           tags: |
             ghcr.io/metacubex/metacubexd:latest
+            ghcr.io/metacubex/metacubexd:${{ needs.release-please.outputs.tag_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

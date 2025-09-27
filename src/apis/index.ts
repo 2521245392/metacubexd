@@ -1,7 +1,7 @@
 import ky from 'ky'
 import { ResourceActions, createSignal } from 'solid-js'
 import { toast } from 'solid-toast'
-import { useRequest } from '~/signals'
+import { useGithubAPI, useRequest } from '~/signals'
 import {
   BackendVersion,
   Config,
@@ -10,6 +10,22 @@ import {
   Rule,
   RuleProvider,
 } from '~/types'
+
+export const checkEndpointAPI = (url: string, secret: string) =>
+  ky
+    .get(url.endsWith('/') ? `${url}version` : `${url}/version`, {
+      headers: secret
+        ? {
+            Authorization: `Bearer ${secret}`,
+          }
+        : {},
+    })
+    .then(({ ok }) => ok)
+    .catch((err) => {
+      const { message } = err as Error
+
+      toast.error(message)
+    })
 
 export const closeAllConnectionsAPI = () => {
   const request = useRequest()
@@ -28,6 +44,7 @@ export const [updatingGEODatabases, setUpdatingGEODatabases] =
   createSignal(false)
 export const [flushingFakeIPData, setFlushingFakeIPData] = createSignal(false)
 export const [upgradingBackend, setUpgradingBackend] = createSignal(false)
+export const [upgradingUI, setUpgradingUI] = createSignal(false)
 export const [restartingBackend, setRestartingBackend] = createSignal(false)
 
 export const reloadConfigFileAPI = async () => {
@@ -38,7 +55,9 @@ export const reloadConfigFileAPI = async () => {
       searchParams: { force: true },
       json: { path: '', payload: '' },
     })
-  } catch {}
+  } catch {
+    /* empty */
+  }
   setReloadingConfigFile(false)
 }
 
@@ -47,7 +66,9 @@ export const flushFakeIPDataAPI = async () => {
   setFlushingFakeIPData(true)
   try {
     await request.post('cache/fakeip/flush')
-  } catch {}
+  } catch {
+    /* empty */
+  }
   setFlushingFakeIPData(false)
 }
 
@@ -56,7 +77,9 @@ export const updateGEODatabasesAPI = async () => {
   setUpdatingGEODatabases(true)
   try {
     await request.post('configs/geo')
-  } catch {}
+  } catch {
+    /* empty */
+  }
   setUpdatingGEODatabases(false)
 }
 
@@ -65,8 +88,21 @@ export const upgradeBackendAPI = async () => {
   setUpgradingBackend(true)
   try {
     await request.post('upgrade')
-  } catch {}
+  } catch {
+    /* empty */
+  }
   setUpgradingBackend(false)
+}
+
+export const upgradeUIAPI = async () => {
+  const request = useRequest()
+  setUpgradingUI(true)
+  try {
+    await request.post('upgrade/ui')
+  } catch {
+    /* empty */
+  }
+  setUpgradingUI(false)
 }
 
 export const restartBackendAPI = async () => {
@@ -74,7 +110,9 @@ export const restartBackendAPI = async () => {
   setRestartingBackend(true)
   try {
     await request.post('restart')
-  } catch {}
+  } catch {
+    /* empty */
+  }
   setRestartingBackend(false)
 }
 
@@ -125,15 +163,15 @@ export const fetchProxiesAPI = () => {
 export const updateProxyProviderAPI = (providerName: string) => {
   const request = useRequest()
 
-  return request.put(`providers/proxies/${providerName}`)
+  return request.put(`providers/proxies/${encodeURIComponent(providerName)}`)
 }
 
 export const proxyProviderHealthCheckAPI = (providerName: string) => {
   const request = useRequest()
 
   return request
-    .get(`providers/proxies/${providerName}/healthcheck`, {
-      timeout: 5 * 1000,
+    .get(`providers/proxies/${encodeURIComponent(providerName)}/healthcheck`, {
+      timeout: 20 * 1000,
     })
     .json<Record<string, number>>()
 }
@@ -141,7 +179,7 @@ export const proxyProviderHealthCheckAPI = (providerName: string) => {
 export const selectProxyInGroupAPI = (groupName: string, proxyName: string) => {
   const request = useRequest()
 
-  return request.put(`proxies/${groupName}`, {
+  return request.put(`proxies/${encodeURIComponent(groupName)}`, {
     body: JSON.stringify({
       name: proxyName,
     }),
@@ -163,7 +201,7 @@ export const proxyLatencyTestAPI = (
   }
 
   return request
-    .get(`proxies/${proxyName}/delay`, {
+    .get(`proxies/${encodeURIComponent(proxyName)}/delay`, {
       searchParams: {
         url,
         timeout,
@@ -180,7 +218,7 @@ export const proxyGroupLatencyTestAPI = (
   const request = useRequest()
 
   return request
-    .get(`group/${groupName}/delay`, {
+    .get(`group/${encodeURIComponent(groupName)}/delay`, {
       searchParams: {
         url,
         timeout,
@@ -206,43 +244,70 @@ export const fetchRuleProvidersAPI = () => {
 export const updateRuleProviderAPI = (providerName: string) => {
   const request = useRequest()
 
-  return request.put(`providers/rules/${providerName}`)
+  return request.put(`providers/rules/${encodeURIComponent(providerName)}`)
 }
 
 type ReleaseAPIResponse = {
+  tag_name: string
+  body: string
   assets: { name: string }[]
 }
 
-export const isUpdateAvailableAPI = async (versionResponse: string) => {
-  const repositoryURL = 'https://api.github.com/repos/MetaCubeX/mihomo'
-  const match = /(alpha|beta|meta)-?(\w+)/.exec(versionResponse)
+type ReleaseReturn = {
+  isUpdateAvailable: boolean
+  changelog?: string
+}
 
-  if (!match) {
-    return false
+export const frontendReleaseAPI = async (
+  currentVersion: string,
+): Promise<ReleaseReturn> => {
+  const githubAPI = useGithubAPI()
+
+  const { tag_name, body } = await githubAPI
+    .get(`repos/MetaCubeX/metacubexd/releases/latest`)
+    .json<ReleaseAPIResponse>()
+
+  return {
+    isUpdateAvailable: tag_name !== currentVersion,
+    changelog: body,
+  }
+}
+
+export const backendReleaseAPI = async (
+  currentVersion: string,
+): Promise<ReleaseReturn> => {
+  const githubAPI = useGithubAPI()
+
+  const repositoryURL = 'repos/MetaCubeX/mihomo'
+  const match = /(alpha|beta|meta)-?(\w+)/.exec(currentVersion)
+
+  if (!match)
+    return {
+      isUpdateAvailable: false,
+    }
+
+  const release = async (url: string) => {
+    const { assets, body } = await githubAPI
+      .get(`${repositoryURL}/${url}`)
+      .json<ReleaseAPIResponse>()
+
+    const alreadyLatest = assets.some(({ name }) => name.includes(version))
+
+    return {
+      isUpdateAvailable: !alreadyLatest,
+      changelog: body,
+    }
   }
 
   const channel = match[1],
     version = match[2]
 
-  if (channel === 'meta') {
-    const { assets } = await ky
-      .get(`${repositoryURL}/releases/latest`)
-      .json<ReleaseAPIResponse>()
+  if (channel === 'meta') return await release('releases/latest')
 
-    const alreadyLatest = assets.some(({ name }) => name.includes(version))
+  if (channel === 'alpha')
+    return await release('releases/tags/Prerelease-Alpha')
 
-    return !alreadyLatest
+  return {
+    isUpdateAvailable: false,
   }
-
-  if (channel === 'alpha') {
-    const { assets } = await ky
-      .get(`${repositoryURL}/releases/tags/Prerelease-Alpha`)
-      .json<ReleaseAPIResponse>()
-
-    const alreadyLatest = assets.some(({ name }) => name.includes(version))
-
-    return !alreadyLatest
-  }
-
-  return false
 }

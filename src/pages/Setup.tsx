@@ -1,13 +1,11 @@
 import { createForm } from '@felte/solid'
 import { validator } from '@felte/validator-zod'
-import { useLocation, useNavigate } from '@solidjs/router'
 import { IconX } from '@tabler/icons-solidjs'
-import ky from 'ky'
-import { For, onMount } from 'solid-js'
 import { toast } from 'solid-toast'
 import { v4 as uuid } from 'uuid'
 import { z } from 'zod'
-import { Button } from '~/components'
+import { checkEndpointAPI } from '~/apis'
+import { Button, DocumentTitle } from '~/components'
 import { transformEndpointURL } from '~/helpers'
 import { useI18n } from '~/i18n'
 import {
@@ -29,35 +27,15 @@ export default () => {
 
   const onSetupSuccess = (id: string) => {
     setSelectedEndpoint(id)
-    navigate('/overview')
+    navigate('/overview', { replace: true })
   }
-
-  const checkEndpoint = (url: string, secret: string) =>
-    ky
-      .get(url, {
-        headers: secret
-          ? {
-              Authorization: `Bearer ${secret}`,
-            }
-          : {},
-      })
-      .then(({ ok }) => ok)
-      .catch((err) => {
-        const { message } = err as Error
-
-        toast.error(message)
-      })
 
   const onEndpointSelect = async (id: string) => {
     const endpoint = endpointList().find((e) => e.id === id)
 
-    if (!endpoint) {
-      return
-    }
+    if (!endpoint) return
 
-    if (!(await checkEndpoint(endpoint.url, endpoint.secret))) {
-      return
-    }
+    if (!(await checkEndpointAPI(endpoint.url, endpoint.secret))) return
 
     onSetupSuccess(id)
   }
@@ -65,9 +43,7 @@ export default () => {
   const onSubmit = async ({ url, secret }: { url: string; secret: string }) => {
     const transformedURL = transformEndpointURL(url)
 
-    if (!(await checkEndpoint(transformedURL, secret))) {
-      return
-    }
+    if (!(await checkEndpointAPI(transformedURL, secret))) return
 
     const id = uuid()
     const list = endpointList().slice()
@@ -109,12 +85,19 @@ export default () => {
     setEndpointList(endpointList().filter((e) => e.id !== id))
   }
 
-  onMount(() => {
-    const query = new URLSearchParams(location.search)
+  onMount(async () => {
+    const search =
+      location.search ||
+      window.location.search ||
+      location.hash.match(/\?.*$/)?.[0]?.replace('?', '')
+
+    if (!search) return
+
+    const query = new URLSearchParams(search)
 
     if (query.has('hostname')) {
-      void onSubmit({
-        url: `${window.location.protocol}//${query.get('hostname')}${
+      await onSubmit({
+        url: `${query.get('http') ? 'http:' : query.get('https') ? 'https:' : window.location.protocol}//${query.get('hostname')}${
           query.get('port') ? `:${query.get('port')}` : ''
         }`,
         secret: query.get('secret') ?? '',
@@ -124,7 +107,7 @@ export default () => {
         we only try auto login when there is nothing in endpoint list
         or user who is using default config won't be able to switch to another endpoint ever
       */
-      void onSubmit({
+      await onSubmit({
         url: 'http://127.0.0.1:9090',
         secret: '',
       })
@@ -132,68 +115,78 @@ export default () => {
   })
 
   return (
-    <div class="mx-auto flex max-w-screen-sm flex-col items-center gap-4 py-10">
-      <form class="contents" use:form={form}>
-        <div class="flex w-full flex-col gap-4">
-          <div class="flex-1">
-            <label class="label">
-              <span class="label-text">{t('endpointURL')}</span>
-            </label>
+    <>
+      <DocumentTitle>{t('setup')}</DocumentTitle>
 
-            <input
-              name="url"
-              type="url"
-              class="input input-bordered w-full"
-              placeholder="http://127.0.0.1:9090"
-              list="defaultEndpoints"
-            />
+      <div class="mx-auto flex max-w-screen-sm flex-col items-center gap-4 py-10">
+        <form class="contents" use:form={form}>
+          <div class="flex w-full flex-col gap-4">
+            <fieldset class="fieldset">
+              <label class="label" for="url">
+                <span>{t('endpointURL')}</span>
+              </label>
 
-            <datalist id="defaultEndpoints">
-              <option value="http://127.0.0.1:9090" />
-            </datalist>
+              <input
+                id="url"
+                name="url"
+                type="url"
+                class="input w-full"
+                placeholder="http(s)://{hostname}:{port}"
+                list="defaultEndpoints"
+              />
+
+              <datalist id="defaultEndpoints">
+                <option value="http://127.0.0.1:9090" />
+
+                <Show when={window.location.origin !== 'http://127.0.0.1:9090'}>
+                  <option value={window.location.origin} />
+                </Show>
+              </datalist>
+            </fieldset>
+
+            <fieldset class="fieldset">
+              <label class="label" for="secret">
+                <span>{t('secret')}</span>
+              </label>
+
+              <input
+                id="secret"
+                name="secret"
+                type="password"
+                class="input w-full"
+                placeholder="secret"
+              />
+            </fieldset>
+
+            <Button type="submit" class="uppercase btn-primary">
+              {t('add')}
+            </Button>
           </div>
+        </form>
 
-          <div class="flex-1">
-            <label class="label">
-              <span class="label-text">{t('secret')}</span>
-            </label>
-
-            <input
-              name="secret"
-              type="password"
-              class="input input-bordered w-full"
-              placeholder="secret"
-            />
-          </div>
-
-          <Button type="submit" class="btn-primary uppercase">
-            {t('add')}
-          </Button>
-        </div>
-      </form>
-
-      <div class="grid w-full grid-cols-2 gap-4">
-        <For each={endpointList()}>
-          {({ id, url }) => (
-            <div
-              class="badge badge-info flex w-full cursor-pointer items-center justify-between gap-4 py-4"
-              onClick={() => onEndpointSelect(id)}
-            >
-              <span class="truncate">{url}</span>
-
-              <Button
-                class="btn-circle btn-ghost btn-xs text-white"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onRemove(id)
-                }}
+        <div class="grid w-full grid-cols-2 gap-4">
+          <For each={endpointList()}>
+            {({ id, url }) => (
+              <div
+                class="badge flex w-full cursor-pointer items-center justify-between gap-4 py-4 badge-info"
+                onClick={() => onEndpointSelect(id)}
               >
-                <IconX />
-              </Button>
-            </div>
-          )}
-        </For>
+                <span class="truncate">{url}</span>
+
+                <Button
+                  class="btn-circle text-white btn-ghost btn-xs"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onRemove(id)
+                  }}
+                >
+                  <IconX />
+                </Button>
+              </div>
+            )}
+          </For>
+        </div>
       </div>
-    </div>
+    </>
   )
 }

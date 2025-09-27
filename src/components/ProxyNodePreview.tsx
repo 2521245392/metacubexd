@@ -1,10 +1,10 @@
-import { createMemo, Match, Show, Switch } from 'solid-js'
 import { ProxyPreviewBar, ProxyPreviewDots } from '~/components'
 import { PROXIES_PREVIEW_TYPE } from '~/constants'
 import { proxiesPreviewType } from '~/signals'
 
 export const ProxyNodePreview = (props: {
   proxyNameList: string[]
+  testUrl: string | null
   now?: string
 }) => {
   const off = () => proxiesPreviewType() === PROXIES_PREVIEW_TYPE.OFF
@@ -35,6 +35,7 @@ export const ProxyNodePreview = (props: {
         <Match when={isShowBar()}>
           <ProxyPreviewBar
             proxyNameList={props.proxyNameList}
+            testUrl={props.testUrl}
             now={props.now}
           />
         </Match>
@@ -42,6 +43,7 @@ export const ProxyNodePreview = (props: {
         <Match when={isShowDots()}>
           <ProxyPreviewDots
             proxyNameList={props.proxyNameList}
+            testUrl={props.testUrl}
             now={props.now}
           />
         </Match>

@@ -1,5 +1,7 @@
 import { makePersisted } from '@solid-primitives/storage'
 import {
+  IconPlayerPause,
+  IconPlayerPlay,
   IconSettings,
   IconSortAscending,
   IconSortDescending,
@@ -15,16 +17,12 @@ import {
   getFilteredRowModel,
   getSortedRowModel,
 } from '@tanstack/solid-table'
-import { For, Index, createEffect, createSignal } from 'solid-js'
 import { twMerge } from 'tailwind-merge'
-import { Button, LogsSettingsModal } from '~/components'
+import { Button, DocumentTitle, LogsSettingsModal } from '~/components'
 import { LOG_LEVEL } from '~/constants'
 import { useI18n } from '~/i18n'
-import { logsTableSize, tableSizeClassName, useWsRequest } from '~/signals'
-import { logLevel, logMaxRows } from '~/signals/config'
-import { Log } from '~/types'
-
-type LogWithSeq = Log & { seq: number }
+import { endpoint, logsTableSize, tableSizeClassName, useLogs } from '~/signals'
+import { LogWithSeq } from '~/types'
 
 const fuzzyFilter: FilterFn<LogWithSeq> = (row, columnId, value, addMeta) => {
   // Rank the item
@@ -40,28 +38,18 @@ const fuzzyFilter: FilterFn<LogWithSeq> = (row, columnId, value, addMeta) => {
 }
 
 export default () => {
+  const navigate = useNavigate()
+
+  if (!endpoint()) {
+    navigate('/setup', { replace: true })
+
+    return null
+  }
+
   let logsSettingsModalRef: HTMLDialogElement | undefined
-
   const [t] = useI18n()
-
-  let seq = 1
-  const [logs, setLogs] = createSignal<LogWithSeq[]>([])
-
-  const logsData = useWsRequest<Log>('logs', { level: logLevel() })
-
-  createEffect(() => {
-    const data = logsData()
-
-    if (!data) {
-      return
-    }
-
-    setLogs((logs) => [{ ...data, seq }, ...logs].slice(0, logMaxRows()))
-
-    seq++
-  })
-
   const [globalFilter, setGlobalFilter] = createSignal('')
+  const { logs, paused, setPaused } = useLogs()
 
   const [sorting, setSorting] = makePersisted(createSignal<SortingState>([]), {
     name: 'logsTableSorting',
@@ -131,94 +119,104 @@ export default () => {
   })
 
   return (
-    <div class="flex h-full flex-col gap-2">
-      <div class="join w-full">
-        <input
-          type="search"
-          class="input join-item input-primary input-sm flex-1 flex-shrink-0 sm:input-md"
-          placeholder={t('search')}
-          onInput={(e) => setGlobalFilter(e.target.value)}
-        />
+    <>
+      <DocumentTitle>{t('logs')}</DocumentTitle>
 
-        <Button
-          class="join-item btn-sm sm:btn-md"
-          onClick={() => logsSettingsModalRef?.showModal()}
-          icon={<IconSettings />}
-        />
-      </div>
+      <div class="flex h-full flex-col gap-2">
+        <div class="join w-full">
+          <input
+            type="search"
+            class="input input-sm join-item flex-1 flex-shrink-0 input-primary"
+            placeholder={t('search')}
+            onInput={(e) => setGlobalFilter(e.target.value)}
+          />
 
-      <div class="overflow-x-auto whitespace-nowrap rounded-md bg-base-300">
-        <table
-          class={twMerge(
-            tableSizeClassName(logsTableSize()),
-            'table relative rounded-none',
-          )}
-        >
-          <thead class="sticky top-0 z-10">
-            <Index each={table.getHeaderGroups()}>
-              {(keyedHeaderGroup) => {
-                const headerGroup = keyedHeaderGroup()
+          <Button
+            class="join-item btn-sm btn-primary"
+            onClick={() => setPaused((paused) => !paused)}
+            icon={paused() ? <IconPlayerPlay /> : <IconPlayerPause />}
+          />
+          <Button
+            class="join-item btn-sm btn-primary"
+            onClick={() => logsSettingsModalRef?.showModal()}
+            icon={<IconSettings />}
+          />
+        </div>
 
-                return (
-                  <tr>
-                    <Index each={headerGroup.headers}>
-                      {(keyedHeader) => {
-                        const header = keyedHeader()
+        <div class="overflow-x-auto rounded-md bg-base-300 whitespace-nowrap">
+          <table
+            class={twMerge(
+              tableSizeClassName(logsTableSize()),
+              'table relative rounded-none',
+            )}
+          >
+            <thead class="sticky top-0 z-10">
+              <Index each={table.getHeaderGroups()}>
+                {(keyedHeaderGroup) => {
+                  const headerGroup = keyedHeaderGroup()
 
-                        return (
-                          <th class="bg-base-200">
-                            <div class="flex items-center">
-                              <div
-                                class={twMerge(
-                                  header.column.getCanSort() &&
-                                    'cursor-pointer select-none',
-                                  'flex-1',
-                                )}
-                                onClick={header.column.getToggleSortingHandler()}
-                              >
-                                {flexRender(
-                                  header.column.columnDef.header,
-                                  header.getContext(),
-                                )}
+                  return (
+                    <tr>
+                      <Index each={headerGroup.headers}>
+                        {(keyedHeader) => {
+                          const header = keyedHeader()
+
+                          return (
+                            <th class="bg-base-200">
+                              <div class="flex items-center">
+                                <div
+                                  class={twMerge(
+                                    header.column.getCanSort() &&
+                                      'cursor-pointer select-none',
+                                    'flex-1',
+                                  )}
+                                  onClick={header.column.getToggleSortingHandler()}
+                                >
+                                  {flexRender(
+                                    header.column.columnDef.header,
+                                    header.getContext(),
+                                  )}
+                                </div>
+
+                                {{
+                                  asc: <IconSortAscending />,
+                                  desc: <IconSortDescending />,
+                                }[header.column.getIsSorted() as string] ??
+                                  null}
                               </div>
+                            </th>
+                          )
+                        }}
+                      </Index>
+                    </tr>
+                  )
+                }}
+              </Index>
+            </thead>
 
-                              {{
-                                asc: <IconSortAscending />,
-                                desc: <IconSortDescending />,
-                              }[header.column.getIsSorted() as string] ?? null}
-                            </div>
-                          </th>
-                        )
-                      }}
-                    </Index>
+            <tbody>
+              <For each={table.getRowModel().rows}>
+                {(row) => (
+                  <tr class="hover:!bg-primary hover:text-primary-content">
+                    <For each={row.getVisibleCells()}>
+                      {(cell) => (
+                        <td class="py-2">
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </td>
+                      )}
+                    </For>
                   </tr>
-                )
-              }}
-            </Index>
-          </thead>
+                )}
+              </For>
+            </tbody>
+          </table>
+        </div>
 
-          <tbody>
-            <For each={table.getRowModel().rows}>
-              {(row) => (
-                <tr class="hover:!bg-primary hover:text-primary-content">
-                  <For each={row.getVisibleCells()}>
-                    {(cell) => (
-                      <td class="py-2">
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext(),
-                        )}
-                      </td>
-                    )}
-                  </For>
-                </tr>
-              )}
-            </For>
-          </tbody>
-        </table>
+        <LogsSettingsModal ref={(el) => (logsSettingsModalRef = el)} />
       </div>
-
-      <LogsSettingsModal ref={(el) => (logsSettingsModalRef = el)} />
-    </div>
+    </>
   )
 }

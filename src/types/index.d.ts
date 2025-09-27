@@ -12,15 +12,19 @@ export type Proxy = {
   name: string
   type: string
   all?: string[]
+  icon?: string
   extra: Record<string, unknown>
   history: {
     time: string
     delay: number
   }[]
+  hidden: boolean
   udp: boolean
   xudp: boolean
   tfo: boolean
   now: string
+  testUrl?: string
+  timeout?: number
 }
 
 export type ProxyNode = {
@@ -51,6 +55,7 @@ export type ProxyProvider = {
   name: string
   proxies: ProxyNode[]
   testUrl: string
+  timeout?: number
   updatedAt: string
   vehicleType: string
 }
@@ -113,8 +118,14 @@ export type Log = {
   payload: string
 }
 
+export type LogWithSeq = Log & { seq: number }
+
 export type Config = {
-  mode: 'global' | 'rule' | 'direct'
+  mode: string
+  // sing-box added
+  'mode-list': string[]
+  // sing-box-p added
+  modes?: string[]
   port: number
   'socks-port': number
   'redir-port': number

@@ -1,13 +1,23 @@
 @import '@fontsource/fira-sans';
+@import 'tailwindcss';
+@plugin "@tailwindcss/typography";
+@plugin "daisyui" {
+  themes: all;
+}
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-@tailwind variants;
+@theme {
+  --font-fira-sans: FiraSans, 'Twemoji Mozilla', system-ui, monospace;
+  --font-system-ui: 'Twemoji Mozilla', system-ui, monospace;
+}
+
+@font-face {
+  font-family: 'FiraSans';
+  src: url('assets/FiraSans-Regular.ttf') format('truetype');
+}
 
 @font-face {
   font-family: 'Twemoji Mozilla';
-  src: url('assets/Twemoji.Mozilla.ttf') format('truetype');
+  src: url('assets/TwemojiMozilla-flags.woff2') format('woff2');
 }
 
 :root {
@@ -40,4 +50,8 @@
   ::-webkit-scrollbar-thumb {
     @apply rounded-box bg-primary;
   }
+}
+
+option {
+  font-family: system-ui;
 }

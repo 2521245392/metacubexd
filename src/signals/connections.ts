@@ -1,5 +1,5 @@
+import { makePersisted } from '@solid-primitives/storage'
 import { differenceWith, isNumber, unionWith } from 'lodash'
-import { createEffect, createSignal, untrack } from 'solid-js'
 import { CONNECTIONS_TABLE_MAX_CLOSED_ROWS } from '~/constants'
 import { Connection, ConnectionRawMessage } from '~/types'
 
@@ -9,12 +9,23 @@ export type WsMsg = {
   downloadTotal: number
 } | null
 
+// DIRECT is from clash
+// direct and dns-out is from the example of sing-box official site
+export const [quickFilterRegex, setQuickFilterRegex] = makePersisted(
+  createSignal<string>('DIRECT|direct|dns-out'),
+  {
+    name: 'quickFilterRegex',
+    storage: localStorage,
+  },
+)
+
 // we make connections global, so we can keep track of connections when user in proxy page
 // when user selects proxy and close some connections they can back and check connections
 // they closed
 export const [allConnections, setAllConnections] = createSignal<Connection[]>(
   [],
 )
+
 export const [latestConnectionMsg, setLatestConnectionMsg] =
   createSignal<WsMsg>(null)
 
@@ -59,9 +70,26 @@ export const useConnections = () => {
     })
   })
 
+  const speedGroupByName = createMemo(() => {
+    const returnMap: Record<string, number> = {}
+
+    activeConnections().forEach((c) => {
+      c.chains.forEach((chain) => {
+        if (!returnMap[chain]) {
+          returnMap[chain] = 0
+        }
+
+        returnMap[chain] += c.downloadSpeed
+      })
+    })
+
+    return returnMap
+  })
+
   return {
     closedConnections,
     activeConnections,
+    speedGroupByName,
     paused,
     setPaused,
   }

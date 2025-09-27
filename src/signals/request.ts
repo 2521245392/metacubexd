@@ -1,8 +1,11 @@
 import { createEventSignal } from '@solid-primitives/event-listener'
 import { makePersisted } from '@solid-primitives/storage'
-import { createReconnectingWS } from '@solid-primitives/websocket'
+import {
+  createReconnectingWS,
+  ReconnectingWebSocket,
+} from '@solid-primitives/websocket'
 import ky from 'ky'
-import { createMemo, createSignal } from 'solid-js'
+import _ from 'lodash'
 
 export const [selectedEndpoint, setSelectedEndpoint] = makePersisted(
   createSignal(''),
@@ -42,18 +45,40 @@ export const useRequest = () => {
   })
 }
 
+export const useGithubAPI = () => {
+  const headers = new Headers()
+
+  if (import.meta.env.VITE_APP_GH_TOKEN) {
+    headers.set('Authorization', `Bearer ${import.meta.env.VITE_APP_GH_TOKEN}`)
+  }
+
+  return ky.create({
+    prefixUrl: 'https://api.github.com',
+    headers,
+  })
+}
+
 export const endpoint = () =>
   endpointList().find(({ id }) => id === selectedEndpoint())
 
 export const secret = () => endpoint()?.secret
 
 export const wsEndpointURL = () =>
-  new URL(endpoint()?.url ?? '').origin.replace('http', 'ws')
+  _.trimEnd(new URL(endpoint()?.url ?? '').href.replace('http', 'ws'), '/')
+
+const webSocketInstanceMap = new Map<string, ReconnectingWebSocket>()
 
 export const useWsRequest = <T>(
   path: string,
   queries: Record<string, string> = {},
 ) => {
+  const oldInstance = webSocketInstanceMap.get(path)
+
+  if (oldInstance) {
+    oldInstance.close()
+    webSocketInstanceMap.delete(path)
+  }
+
   const queryParams = new URLSearchParams(queries)
   queryParams.set('token', secret() ?? '')
 
@@ -64,6 +89,8 @@ export const useWsRequest = <T>(
   const event = createEventSignal<{
     message: MessageEvent
   }>(ws, 'message')
+
+  webSocketInstanceMap.set(path, ws)
 
   return createMemo<T | null>(() => {
     const e = event()

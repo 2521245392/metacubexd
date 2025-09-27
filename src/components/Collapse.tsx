@@ -1,4 +1,4 @@
-import { children, JSX, ParentComponent, Show } from 'solid-js'
+import type { JSX, ParentComponent } from 'solid-js'
 import { twMerge } from 'tailwind-merge'
 
 type Props = {
@@ -28,7 +28,7 @@ export const Collapse: ParentComponent<Props> = (props) => {
     <div
       class={twMerge(
         getCollapseClassName(),
-        'collapse collapse-arrow select-none border-secondary bg-base-200 shadow-md',
+        'collapse-arrow collapse border-secondary bg-base-200 shadow-md select-none',
       )}
     >
       <div
@@ -41,8 +41,9 @@ export const Collapse: ParentComponent<Props> = (props) => {
       <div
         class={twMerge(
           getCollapseContentClassName(),
-          'collapse-content grid grid-cols-2 gap-2 transition-opacity duration-1000 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5',
+          'collapse-content grid gap-2 transition-opacity duration-1000',
         )}
+        style="grid-template-columns: repeat(auto-fill, minmax(150px, 1fr))"
       >
         <Show when={props.isOpen}>{children(() => props.children)()}</Show>
       </div>
